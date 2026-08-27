@@ -1,0 +1,24 @@
+{
+  "name": "personal-plugins",
+  "owner": { "name": "plugin-dev" },
+  "plugins": [
+    {
+      "name": "health-reminder",
+      "source": "./plugins/health-reminder",
+      "description": "定时提醒站起来、喝水、伸懒腰（Stop 横幅 + 状态栏倒计时，零模型调用）",
+      "category": "health"
+    },
+    {
+      "name": "statusline",
+      "source": "./plugins/statusline",
+      "description": "纯 python 单行状态栏：模型 · 上下文占比 · git 分支 · 健康倒计时",
+      "category": "statusline"
+    },
+    {
+      "name": "claude-pet",
+      "source": "./plugins/claude-pet",
+      "description": "放置挂机电子宠物：Claude 干活 = 宠物成长，升级进化，满级转生",
+      "category": "fun"
+    }
+  ]
+}

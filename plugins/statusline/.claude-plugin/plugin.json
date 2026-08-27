@@ -1,0 +1,6 @@
+{
+  "name": "statusline",
+  "version": "0.1.0",
+  "description": "纯 python 单行状态栏：模型 · 上下文占比 · git 分支 · 健康倒计时（与 health-reminder 联动）",
+  "author": { "name": "plugin-dev" }
+}

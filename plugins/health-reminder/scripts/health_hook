@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Stop hook：到期则横幅提醒并 ack；任何异常静默退出 0。"""
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import health_lib  # noqa: E402
+
+
+def main_hook():
+    try:
+        sys.stdin.read()  # 丢弃 hook 输入
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        now = int(time.time())
+        with health_lib.state_lock():
+            s = health_lib.load_state()
+            if not s:
+                return 0
+            c = health_lib.compute(s, now)
+            if not c["due"]:
+                return 0
+            health_lib.save_state(health_lib.do_ack(s, now))
+        print(json.dumps({"systemMessage": health_lib.banner_text(c)},
+                         ensure_ascii=False))
+    except Exception:  # noqa: BLE001  hook 绝不阻塞会话
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main_hook())

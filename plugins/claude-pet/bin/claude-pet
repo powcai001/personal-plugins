@@ -1,0 +1,67 @@
+#!/usr/bin/env node
+'use strict';
+
+const stateIo = require('../lib/state');
+process.on('uncaughtException', (err) => {
+  stateIo.logError(err);
+  process.exit(0);
+});
+
+function main() {
+  const engine = require('../lib/engine');
+  const store = require('../lib/store');
+  const render = require('../lib/render');
+  const STAGES = store.STAGES;
+  const argv = process.argv.slice(2);
+  const sub = argv[0];
+
+  if (['prompt', 'tool', 'stop', 'session'].includes(sub)) {
+    require('../lib/hooks').hooksMain(argv);
+    return;
+  }
+
+  switch (sub) {
+    case 'status': {
+      const state = stateIo.loadState();
+      if (!state) {
+        console.log('还没有宠物档案。开始一次对话（任意 prompt）即可孵蛋 🥚');
+        return;
+      }
+      console.log(render.renderPanel(state, STAGES));
+      return;
+    }
+    case 'statusline': {
+      const state = stateIo.loadState() || engine.newState(new Date().toISOString(), STAGES);
+      process.stdout.write(render.renderStatusline(state, STAGES) + '\n');
+      return;
+    }
+    case 'feed': {
+      const r = store.runUserCommand((s) => engine.applyFeed(s, STAGES, new Date().toISOString()));
+      console.log(r.msg || '系统繁忙，请重试');
+      return;
+    }
+    case 'pet': {
+      const r = store.runUserCommand((s) => engine.applyPet(s, STAGES, new Date().toISOString(), Math.random));
+      console.log(r.msg || '系统繁忙，请重试');
+      return;
+    }
+    case 'rebirth': {
+      const r = store.runUserCommand((s) => engine.applyRebirth(s, STAGES, new Date().toISOString()));
+      console.log(r.msg || '系统繁忙，请重试');
+      return;
+    }
+    case 'version':
+      console.log('claude-pet 0.1.0');
+      return;
+    default:
+      console.log('用法: claude-pet <status|statusline|feed|pet|rebirth|version>');
+      console.log('（prompt/tool/stop/session 由 Claude Code hooks 调用）');
+  }
+}
+
+try {
+  main();
+} catch (err) {
+  stateIo.logError(err);
+  process.exit(0);
+}

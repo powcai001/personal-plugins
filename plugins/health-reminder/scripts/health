@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""health CLI 薄入口——真正逻辑在 health_lib.main_cli。"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import health_lib  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(health_lib.main_cli())

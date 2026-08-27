@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""单行状态栏：模型 ✱ │ 占比 ▓░ NN% │ git ⎇ │ 健康 💧。任何异常降级不报错。"""
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import statusline_lib as sl   # noqa: E402
+
+try:  # 健康段为跨插件联动：health-reminder 未安装时优雅隐藏该段
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "health-reminder", "scripts"))
+    import health_lib         # noqa: E402
+except ImportError:
+    health_lib = None
+
+RESET = "\x1b[0m"
+DIM = "\x1b[90m"
+RED = "\x1b[41;97m"
+YELLOW = "\x1b[33m"
+
+
+def health_segment():
+    if health_lib is None:
+        return ""
+    s = health_lib.load_state()
+    if not s:
+        return ""
+    c = health_lib.compute(s, int(time.time()))
+    if c["paused"]:
+        return " %s⏸ %s%s" % (YELLOW, health_lib.fmt_remaining(c["remaining_s"]), RESET)
+    if c["due"]:
+        return " %s 🚨 站起来·喝水·伸懒腰 %s" % (RED, RESET)
+    return " %s💧 %s%s" % (DIM, health_lib.fmt_remaining(c["remaining_s"]), RESET)
+
+
+PET_PURPLE = "\x1b[38;5;213m"   # 宠物行主题色（紫粉系，与工作段区分）
+SNACK_ORANGE = "\x1b[38;5;215m"
+PET_MIN_XP = 30                  # 本轮 xp 低于此值不展示本轮段（降噪）
+
+
+def _pet_state():
+    """读 claude-pet 存档：找不到 launcher/档案/形态表 → None。"""
+    home = os.path.expanduser("~")
+    # launcher 里的 PET_ROOT 是插件的权威位置（用户可能从 marketplace 缓存跑）
+    launcher = os.path.join(home, ".claude", "claude-pet", "statusline-launcher.sh")
+    state_path = os.path.join(home, ".claude", "claude-pet", "state.json")
+    if not os.path.isfile(launcher) or not os.path.isfile(state_path):
+        return None
+    try:
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(launcher))))
+        # launcher 不在本仓库结构里时（缓存路径），从其内容里解析 PET_ROOT
+        with open(launcher, encoding="utf-8") as f:
+            for ln in f:
+                if "node" in ln and "/bin/claude-pet" in ln:
+                    root = ln.split('"')[1].rsplit("/bin/", 1)[0]
+                    break
+        species_path = os.path.join(root, "data", "species.json")
+        with open(species_path, encoding="utf-8") as f:
+            species = json.load(f)
+        stages = species["species"][species.get("defaultSpeciesIndex", 0)]["stages"] \
+            if isinstance(species.get("species"), list) and species["species"] \
+            else species.get("stages", [])
+        return (state, stages)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _pet_xp_pct(state, stages=None):
+    """XP 百分比：与宠物引擎同式 xp / ceil(15·1.1^(lv-1))，封顶 100。"""
+    import math
+    lvl = state.get("level", 1)
+    need = math.ceil(15 * (1.1 ** (lvl - 1)))
+    if need <= 0:
+        return 100
+    pct = state.get("xp", 0) / float(need) * 100
+    return int(round(max(0.0, min(100.0, pct))))
+
+
+def fact_segment(data_root):
+    """科技史小知识：按小时轮换一条，缺失/损坏 → 空。"""
+    try:
+        p = os.path.join(data_root, "data", "tech_facts.json")
+        with open(p, encoding="utf-8") as f:
+            facts = json.load(f).get("facts") or []
+        if not facts:
+            return ""
+        hour = int(time.time() // 3600)
+        fact = facts[hour % len(facts)]
+        return " \x1b[38;5;245m📜 %d·%s\x1b[0m" % (fact["y"], fact["t"])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def pet_line():
+    """第二行：宠物状态按本渲染器风格重绘（紫粉主题·同构分隔），失败整行隐藏。"""
+    got = _pet_state()
+    if not got:
+        return ""
+    state, stages = got
+    try:
+        lvl = state.get("level", 1)
+        stage = None
+        for s in sorted(stages, key=lambda x: x["level"]):
+            if lvl >= s["level"]:
+                stage = s
+        if not stage:
+            stage = {"form": "🥚", "name": "神秘的蛋"}
+        pct = _pet_xp_pct(state)
+        filled = int(round(pct / 10.0))
+        bar = "▰" * filled + "▱" * (10 - filled)
+        parts = ["%s%s %s\x1b[0m" % (PET_PURPLE, stage["form"], stage["name"]),
+                 "%sLv.%d %s %d%%\x1b[0m" % (PET_PURPLE, lvl, bar, pct)]
+        if state.get("turnXp", 0) >= PET_MIN_XP:
+            parts.append("%s+%dxp\x1b[0m" % (PET_PURPLE, state["turnXp"]))
+        if state.get("snacks", 0) > 0:
+            parts.append("%s🍪%d\x1b[0m" % (SNACK_ORANGE, state["snacks"]))
+        # 科技史小知识放段末（facts.json 缺失/坏 → 空段不追加，避免尾分隔符）
+        seg = fact_segment(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        if seg:
+            parts.append(seg.strip())
+        return " " + sl.SEP.join(parts)
+    except Exception:  # noqa: BLE001  宠物数据怪 → 整行隐藏不拖累第一行
+        return ""
+
+
+def main_statusline():
+    data = {}
+    try:
+        data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:  # noqa: BLE001  stdin 损坏 → 仅健康段
+        data = {}
+    segs = []
+    try:
+        name = sl.model_name((data.get("model") or {}).get("display_name"))
+        if name:
+            segs.append(sl.model_segment(name))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        cwd = (data.get("workspace") or {}).get("current_dir")
+        if cwd and os.path.isdir(cwd):
+            seg = sl.cwd_segment(cwd)
+            if seg:
+                segs.append(seg)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        tp = data.get("transcript_path")
+        tok = sl.ctx_tokens_from_transcript(tp)
+        if tok is not None:
+            m = data.get("model") or {}
+            pct = sl.bar_pct(tok, sl.window_for(m.get("id") or m.get("display_name")))
+            segs.append(sl.ctx_segment(pct))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        cwd = (data.get("workspace") or {}).get("current_dir")
+        if cwd and os.path.isdir(cwd):
+            seg = sl.git_segment(cwd)
+            if seg:
+                segs.append(seg)
+    except Exception:  # noqa: BLE001
+        pass
+    first = sl.SEP.join(segs)
+    # 第二行：健康+工作+时钟+负载四段（各自独立降级）
+    second_parts = []
+    try:
+        seg = health_segment()
+        if seg:
+            second_parts.append(seg.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if health_lib is not None:
+            st = health_lib.load_state()
+            if st:
+                seg = sl.work_segment(st)
+                if seg:
+                    second_parts.append(seg.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        second_parts.append(sl.clock_segment().strip())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        seg = sl.load_segment()
+        if seg:
+            second_parts.append(seg.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    second = sl.SEP.join(second_parts)
+    # 第三行：宠物
+    try:
+        third = pet_line()
+    except Exception:  # noqa: BLE001
+        third = ""
+    lines = [first, second, third]
+    print("\n".join(ln for ln in lines if ln))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main_statusline())
+    except Exception:  # noqa: BLE001  绝不让 Claude Code 报错
+        print("")
+        sys.exit(0)

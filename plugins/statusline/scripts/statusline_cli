@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""statusline 插件 CLI：setup 安装/移除渲染器到 ~/.claude/settings.json。
+
+setup 语义与 health-reminder v0.2.0 的实现一致（含备份保护），独立成插件后自包含。
+"""
+import argparse
+import json
+import os
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def settings_path():
+    return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+
+
+def backup_path():
+    # 沿用 health-reminder 的状态目录：两个插件共享同一份备份，避免互相顶掉对方的原值
+    d = os.environ.get("HEALTH_STATE_DIR",
+                       os.path.expanduser("~/.local/state/health-reminder"))
+    return os.path.join(d, "statusline_backup.json")
+
+
+def load_settings():
+    try:
+        with open(settings_path(), encoding="utf-8") as f:
+            s = json.load(f)
+        return s if isinstance(s, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings):
+    sp = settings_path()
+    os.makedirs(os.path.dirname(sp), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(sp), prefix=".settings-",
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, sp)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def cmd_setup(remove=False):
+    settings = load_settings()
+    cur = settings.get("statusLine") or {}
+    os.makedirs(os.path.dirname(backup_path()), exist_ok=True)
+    renderer = "python3 " + os.path.join(HERE, "statusline")
+    if remove:
+        try:
+            with open(backup_path(), encoding="utf-8") as f:
+                orig = json.load(f).get("statusLine")
+        except (OSError, ValueError):
+            orig = None
+        if orig:
+            settings["statusLine"] = orig
+            print("✅ 已恢复原状态栏")
+        else:
+            settings.pop("statusLine", None)
+            print("✅ 已移除状态栏渲染器")
+    else:
+        cmd = cur.get("command") or ""
+        already_ours = ("health_statusline" in cmd) or (
+            "statusline/scripts/statusline" in cmd) or cmd.endswith("/statusline")
+        if already_ours:
+            settings["statusLine"] = {"type": "command", "command": renderer}
+            print("✅ 已升级状态栏渲染器（备份的原状态栏不变）")
+        else:
+            if not os.path.exists(backup_path()):
+                with open(backup_path(), "w", encoding="utf-8") as f:
+                    json.dump({"statusLine": cur or None}, f, ensure_ascii=False)
+            settings["statusLine"] = {"type": "command", "command": renderer}
+            if cmd:
+                print("⚠️ 检测到其他状态栏，已替换（最早的原状态栏保留在备份中，"
+                      "setup --remove 可恢复）")
+            else:
+                print("✅ 状态栏渲染器已安装（setup --remove 可移除）")
+    save_settings(settings)
+    return 0
+
+
+def cmd_path():
+    print("python3 " + os.path.join(HERE, "statusline"))
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="statusline",
+                                description="状态栏渲染器管理")
+    sub = p.add_subparsers(dest="cmd")
+    sp = sub.add_parser("setup", help="安装/恢复状态栏渲染器")
+    sp.add_argument("--remove", action="store_true", help="恢复原状态栏")
+    sub.add_parser("path", help="打印渲染器命令路径")
+    args = p.parse_args(argv)
+    if args.cmd == "setup":
+        return cmd_setup(getattr(args, "remove", False))
+    if args.cmd == "path":
+        return cmd_path()
+    p.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

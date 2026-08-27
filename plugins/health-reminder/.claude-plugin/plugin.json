@@ -1,0 +1,8 @@
+{
+  "name": "health-reminder",
+  "version": "0.2.0",
+  "description": "定时提醒站起来、喝水、伸懒腰：状态栏倒计时 + Stop 横幅，零模型调用",
+  "author": {
+    "name": "plugin-dev"
+  }
+}

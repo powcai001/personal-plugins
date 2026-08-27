@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""statusline 包装器：透传原状态栏，追加健康段；任何异常只输出原结果。"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import health_lib  # noqa: E402
+
+RESET = "\x1b[0m"
+DIM = "\x1b[90m"
+RED = "\x1b[41;97m"
+YELLOW = "\x1b[33m"
+
+
+def segment(state, now=None):
+    if not state:
+        return ""
+    now = int(time.time()) if now is None else now
+    c = health_lib.compute(state, now)
+    if c["paused"]:
+        return " %s⏸ %s%s" % (YELLOW,
+                               health_lib.fmt_remaining(c["remaining_s"]), RESET)
+    if c["due"]:
+        return " %s 🚨 站起来·喝水·伸懒腰 %s" % (RED, RESET)
+    return " %s💧 %s%s" % (DIM,
+                           health_lib.fmt_remaining(c["remaining_s"]), RESET)
+
+
+def original_command():
+    try:
+        with open(health_lib.backup_path(), encoding="utf-8") as f:
+            cfg = json.load(f).get("statusLine")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(cfg, dict) and cfg.get("type") == "command" and cfg.get("command"):
+        return cfg
+    return None
+
+
+def main_statusline():
+    data = sys.stdin.buffer.read()
+    base = ""
+    try:
+        cfg = original_command()
+        if cfg:
+            r = subprocess.run(cfg["command"], shell=True, input=data,
+                               capture_output=True,
+                               timeout=30)  # 原命令可能是 npx 类慢命令(实测冷启动 7.3s)，5s 会杀掉它
+            base = r.stdout.decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001  原状态栏失败也不能丢
+        base = ""
+    try:
+        seg = segment(health_lib.load_state())
+    except Exception:  # noqa: BLE001
+        seg = ""
+    print((base + seg).strip() if (base or seg) else "")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main_statusline())

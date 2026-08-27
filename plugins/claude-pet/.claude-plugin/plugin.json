@@ -1,0 +1,6 @@
+{
+  "name": "claude-pet",
+  "description": "放置挂机电子宠物：Claude 干活 = 宠物成长，升级进化，满级转生",
+  "version": "0.1.0",
+  "author": { "name": "plugin-dev" }
+}
