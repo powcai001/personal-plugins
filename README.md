@@ -5,6 +5,7 @@
 [![Claude Code Plugins](https://img.shields.io/badge/Claude%20Code-Plugins-blue)](https://claude.com/claude-code)
 [![python3](https://img.shields.io/badge/python3-零依赖-brightgreen)](https://www.python.org/)
 [![node](https://img.shields.io/badge/node-%E2%89%A518%20%E4%BB%85claude--pet-orange)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 三个插件可以单独装，也可以组合成一套"会照顾你的终端"：
 
@@ -190,3 +191,7 @@ cd plugins/claude-pet && node --test "test/*.test.js"
 ```
 
 宠物想彻底清除再删掉存档目录：`rm -rf ~/.claude/claude-pet/`。
+
+## License
+
+[MIT](LICENSE) © 2026 powcai001
