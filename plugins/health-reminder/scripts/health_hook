@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook：到期则横幅提醒并 ack；任何异常静默退出 0。"""
+"""Stop hook：到期则轮换横幅提醒 1 分钟；不自动 ack（等用户手动 done）；异常静默退出 0。"""
 import json
 import os
 import sys
@@ -24,9 +24,16 @@ def main_hook():
             c = health_lib.compute(s, now)
             if not c["due"]:
                 return 0
-            health_lib.save_state(health_lib.do_ack(s, now))
-        print(json.dumps({"systemMessage": health_lib.banner_text(c)},
-                         ensure_ascii=False))
+            seq = s.get("banner_seq") or 0
+            text = health_lib.banner_text(c, seq=seq)
+            ns = dict(s)
+            if not s.get("banner_seq_at"):
+                ns["banner_seq_at"] = now   # 首次弹出：开始 1 分钟展示窗口
+            ns["banner_seq"] = seq + 1      # 每次弹窗都换文案；last_ack 不动（等手动 done）
+            health_lib.save_state(ns)
+            if now - ns["banner_seq_at"] >= health_lib.BANNER_SHOW_S:
+                return 0                    # 展示窗口已过：静默，不再打扰
+        print(json.dumps({"systemMessage": text}, ensure_ascii=False))
     except Exception:  # noqa: BLE001  hook 绝不阻塞会话
         pass
     return 0

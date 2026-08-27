@@ -25,6 +25,10 @@ def segment(state, now=None):
         return " %s⏸ %s%s" % (YELLOW,
                                health_lib.fmt_remaining(c["remaining_s"]), RESET)
     if c["due"]:
+        if not c["show_banner"]:
+            # 展示窗口已过：恢复静默倒计时（提醒仍待手动 done 重置）
+            return " %s💧 %s%s" % (DIM,
+                                   health_lib.fmt_remaining(0), RESET)
         return " %s 🚨 站起来·喝水·伸懒腰 %s" % (RED, RESET)
     return " %s💧 %s%s" % (DIM,
                            health_lib.fmt_remaining(c["remaining_s"]), RESET)

@@ -13,6 +13,7 @@ import time
 from contextlib import contextmanager
 
 DEFAULT_INTERVAL_S = 45 * 60
+BANNER_SHOW_S = 60  # 到期横幅展示时长：超过后静默，直到手动 done
 
 BANNERS = [
     "⏰ 该起来转转了，代码不会跑",
@@ -51,6 +52,10 @@ def valid_state(s):
             int(s["paused_at"])
         if s.get("last_break") is not None:
             int(s["last_break"])
+        if s.get("banner_seq") is not None:
+            int(s["banner_seq"])
+        if s.get("banner_seq_at") is not None:
+            int(s["banner_seq_at"])
         if int(s["interval_s"]) <= 0:
             return False
     except (KeyError, TypeError, ValueError):
@@ -143,6 +148,8 @@ def do_done(s, now):
     s = dict(s)
     s["last_break"] = int(now)
     s["last_ack"] = int(now)
+    s["banner_seq"] = 0
+    s["banner_seq_at"] = None
     return s
 
 
@@ -154,8 +161,17 @@ def compute(s, now):
                 "remaining_s": max(0, s["last_ack"] + interval - frozen)}
     due_at = s["last_ack"] + interval
     due = now >= due_at
+    # 到期后横幅只显示 BANNER_SHOW_S 秒（hook 首弹时记 banner_seq_at）：
+    # 没记录过 → 视为"还没弹出过"，本次照常显示；超过窗口即静默，
+    # 手动 /health done 仍可随时重置计时。
+    seq_at = s.get("banner_seq_at")
+    if due and seq_at is None:
+        show_banner = True          # 尚未展示过：这条必须让用户看到
+    else:
+        show_banner = due and (now - (seq_at or due_at)) < BANNER_SHOW_S
     missed = (now - s["last_ack"]) // interval if due else 0
-    return {"running": True, "paused": False, "due": due, "missed": missed,
+    return {"running": True, "paused": False, "due": due,
+            "show_banner": show_banner, "missed": missed,
             "remaining_s": max(0, due_at - now)}
 
 
@@ -184,8 +200,11 @@ def do_resume(s, now):
     return s
 
 
-def banner_text(c):
-    msg = BANNERS[c["missed"] % len(BANNERS)]
+def banner_text(c, seq=None):
+    """seq=None 按 missed 轮换（兼容旧行为）；传序号则按弹出次数轮换，
+    保证相邻两次提醒看到不同的文案（missed 固定为 1 时旧逻辑会一直同一条）。"""
+    i = c["missed"] if seq is None else max(0, int(seq))
+    msg = BANNERS[i % len(BANNERS)]
     if c["missed"] > 1:
         msg += "（期间错过了 %d 次提醒）" % (c["missed"] - 1)
     msg += "（休息完 /health done）"
@@ -211,7 +230,7 @@ def cmd_start(interval_arg, now):
             interval = prev["interval_s"] if prev else DEFAULT_INTERVAL_S
         save_state({"started_at": now, "interval_s": interval,
                     "last_ack": now, "paused": False, "paused_at": None,
-                    "last_break": now})
+                    "last_break": now, "banner_seq": 0, "banner_seq_at": None})
     print("✅ 已启动：每 %s 提醒一次（状态栏可见倒计时）" % fmt_duration(interval))
     return 0
 

@@ -209,18 +209,24 @@ def write_state(d, **kw):
     return s
 
 
-def test_hook_due_banners_and_acks():
+def test_hook_due_banners_without_ack():
     d, env = tmp_env()
-    # last_ack=1000, interval=600；now 远大于 1600 → due, missed 巨大
+    # last_ack=1000, interval=600；now 远大于 1600 → due
     write_state(d)
     rc, out = run_hook(env)
-    # New pool semantics: check for common banner elements
     assert rc == 0 and ("⏰" in out or "站起" in out or "喝水" in out) and "systemMessage" in out
+    # 到期后 hook 只提醒、不自动 ack：状态保持不变，等待用户手动 done
     with open(os.path.join(d, "state.json")) as f:
         s = json.load(f)
-    assert s["last_ack"] > 1000  # 已 ack
-    rc, out = run_hook(env)      # 幂等：第二次不再横幅
-    assert rc == 0 and out == ""
+    assert s["last_ack"] == 1000
+    rc, out = run_hook(env)      # 每次 Stop 都会再次横幅，直到手动 done
+    assert rc == 0 and ("⏰" in out or "站起" in out or "喝水" in out)
+    # 手动 done 后才重新计时
+    rc, out = run_cli(["done"], env)
+    assert rc == 0 and "已记录休息" in out
+    with open(os.path.join(d, "state.json")) as f:
+        s = json.load(f)
+    assert s["last_ack"] > 1000
 
 
 def test_hook_silent_when_not_due_or_absent():
